@@ -32,7 +32,6 @@ class FleetaVehicleEntity(CoordinatorEntity[FleetaCoordinator]):
             sw_version=vehicle.firmware,
             serial_number=psn,
             configuration_url=WEB_VIEWER_URL,
-            via_device=(DOMAIN, coordinator.config_entry.entry_id),
         )
 
     @property
