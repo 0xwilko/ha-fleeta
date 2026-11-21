@@ -1,0 +1,128 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to FLEETA",
+        "description": "Enter a FLEETA Open API key. Create one in the FLEETA web viewer under Management › Open API › API keys.",
+        "data": {
+          "api_key": "API key"
+        },
+        "data_description": {
+          "api_key": "Starts with flt_live_. It is stored in Home Assistant only."
+        }
+      },
+      "reauth_confirm": {
+        "title": "FLEETA API key needed",
+        "description": "The FLEETA API key was rejected. It may have been revoked. Enter a new key.",
+        "data": {
+          "api_key": "API key"
+        },
+        "data_description": {
+          "api_key": "Starts with flt_live_. It is stored in Home Assistant only."
+        }
+      }
+    },
+    "error": {
+      "invalid_key_format": "That doesn't look like a FLEETA API key. Keys start with flt_.",
+      "invalid_auth": "FLEETA rejected the API key.",
+      "plan_not_supported": "This FLEETA plan doesn't include GPS access through the API.",
+      "rate_limited": "FLEETA's API call limit has been reached. Try again later.",
+      "cannot_connect": "Couldn't reach FLEETA. Try again.",
+      "unknown": "Unexpected error. Check the logs."
+    },
+    "abort": {
+      "single_instance_allowed": "FLEETA is already set up.",
+      "reauth_successful": "API key updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "FLEETA update rate",
+        "description": "By default updates are paced automatically so the monthly API allowance is never used up: faster while driving, slower while parked.",
+        "data": {
+          "scan_interval_minutes": "Never check more often than every (minutes)"
+        },
+        "data_description": {
+          "scan_interval_minutes": "0 = automatic. A higher number saves API calls. It can only slow updates down, never speed them past the allowance."
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "cloud_connection": {
+        "name": "Cloud connection"
+      }
+    },
+    "event": {
+      "dashcam_event": {
+        "name": "Dashcam event",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "parking_impact": "Parking impact",
+              "driving_impact": "Driving impact",
+              "harsh_braking": "Harsh braking",
+              "harsh_acceleration": "Harsh acceleration",
+              "sharp_turn": "Sharp turn",
+              "overspeed": "Overspeed",
+              "speed_limit": "Over the speed limit",
+              "manual": "Manual recording",
+              "drowsy": "Drowsy driving",
+              "distracted": "Distracted driving",
+              "undetected": "Driver not detected",
+              "calling": "Phone call",
+              "smoking": "Smoking",
+              "seatbelt": "Seatbelt not fastened",
+              "geofence_enter": "Geofence entered",
+              "geofence_exit": "Geofence left",
+              "geofence_pass": "Geofence passed",
+              "geofence_speed": "Geofence speeding",
+              "other": "Other"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "speed": {
+        "name": "Speed"
+      },
+      "status": {
+        "name": "Status",
+        "state": {
+          "driving": "Driving",
+          "parked": "Parked",
+          "offline": "Offline"
+        }
+      },
+      "last_gps_fix": {
+        "name": "Last GPS fix"
+      },
+      "api_calls_used": {
+        "name": "API calls this month"
+      },
+      "update_interval": {
+        "name": "Update interval"
+      }
+    }
+  },
+  "exceptions": {
+    "invalid_auth": {
+      "message": "FLEETA rejected the API key."
+    },
+    "monthly_limit": {
+      "message": "FLEETA's monthly API allowance is used up. Updates resume when it resets on the 1st."
+    },
+    "rate_limited": {
+      "message": "FLEETA asked for fewer requests. Retrying at the next update."
+    },
+    "forbidden": {
+      "message": "FLEETA refused the request (plan or key permissions): {error}"
+    },
+    "cannot_connect": {
+      "message": "Error talking to FLEETA: {error}"
+    }
+  }
+}

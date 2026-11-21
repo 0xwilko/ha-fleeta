@@ -1,0 +1,13 @@
+{
+  "domain": "fleeta",
+  "name": "FLEETA (BlackVue)",
+  "codeowners": ["@0xwilko"],
+  "config_flow": true,
+  "documentation": "https://github.com/0xwilko/ha-fleeta",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/0xwilko/ha-fleeta/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "1.0.0"
+}

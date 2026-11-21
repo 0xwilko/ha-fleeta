@@ -1,0 +1,51 @@
+{
+  "entity": {
+    "device_tracker": {
+      "vehicle": {
+        "default": "mdi:car"
+      }
+    },
+    "event": {
+      "dashcam_event": {
+        "default": "mdi:cctv",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "parking_impact": "mdi:car-emergency",
+              "driving_impact": "mdi:car-emergency",
+              "harsh_braking": "mdi:car-brake-alert",
+              "harsh_acceleration": "mdi:speedometer",
+              "sharp_turn": "mdi:arrow-u-left-top",
+              "overspeed": "mdi:speedometer-medium",
+              "speed_limit": "mdi:sign-direction-remove",
+              "manual": "mdi:record-rec",
+              "geofence_enter": "mdi:map-marker-check",
+              "geofence_exit": "mdi:map-marker-remove",
+              "geofence_pass": "mdi:map-marker-path",
+              "geofence_speed": "mdi:map-marker-alert"
+            }
+          }
+        }
+      }
+    },
+    "sensor": {
+      "status": {
+        "default": "mdi:car-info",
+        "state": {
+          "driving": "mdi:car-arrow-right",
+          "parked": "mdi:car-brake-parking",
+          "offline": "mdi:car-off"
+        }
+      },
+      "last_gps_fix": {
+        "default": "mdi:crosshairs-gps"
+      },
+      "api_calls_used": {
+        "default": "mdi:api"
+      },
+      "update_interval": {
+        "default": "mdi:timer-sync-outline"
+      }
+    }
+  }
+}
