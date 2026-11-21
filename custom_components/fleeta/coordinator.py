@@ -14,6 +14,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from . import validate
 from .api import (
     FleetaApi,
     FleetaAuthError,
@@ -39,24 +40,27 @@ from .const import (
     SIGNAL_NEW_EVENT,
     STATUS_DRIVING,
     STATUS_OFFLINE,
+    STATUSES,
     USAGE_REFRESH,
 )
 
 type FleetaConfigEntry = ConfigEntry[FleetaCoordinator]
 
+# A FLEETA account should never hold more cameras than this; anything beyond
+# it is ignored so a bad response cannot flood Home Assistant with devices.
+MAX_VEHICLES = 100
 
-def _parse_time(value: Any) -> datetime | None:
-    """Parse an ISO 8601 timestamp from the API."""
-    if not isinstance(value, str) or not value:
+
+def _status(value: Any) -> str | None:
+    """Return a known FLEETA status."""
+    return value if value in STATUSES else None
+
+
+def _count(value: Any) -> int | None:
+    """Return a non-negative whole number."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
-    return dt_util.parse_datetime(value)
-
-
-def _number(value: Any) -> float | None:
-    """Return a float, keeping None (not measured) apart from 0."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    return float(value)
+    return value
 
 
 @dataclass
@@ -187,8 +191,9 @@ class FleetaCoordinator(DataUpdateCoordinator[FleetaData]):
 
     @property
     def fixed_minutes(self) -> int:
-        """Fixed polling interval from the options (0 = automatic)."""
-        return int(self.config_entry.options.get(CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES))
+        """Minimum polling interval from the options (0 = automatic)."""
+        value = self.config_entry.options.get(CONF_SCAN_INTERVAL_MINUTES, DEFAULT_SCAN_INTERVAL_MINUTES)
+        return value if isinstance(value, int) and 0 <= value <= 60 else DEFAULT_SCAN_INTERVAL_MINUTES
 
     async def _async_update_data(self) -> FleetaData:
         """Fetch the latest data from FLEETA."""
@@ -256,56 +261,66 @@ class FleetaCoordinator(DataUpdateCoordinator[FleetaData]):
             LOGGER.debug("Could not read FLEETA usage, will retry: %s", err)
             return
         calls = usage.get("apiCalls") if isinstance(usage.get("apiCalls"), dict) else {}
-        used = calls.get("used")
-        limit = calls.get("limit")
         self._state.usage = FleetaUsage(
-            tier=usage.get("tier") if isinstance(usage.get("tier"), str) else None,
-            period=usage.get("period") if isinstance(usage.get("period"), str) else None,
-            used=used if isinstance(used, int) else None,
-            limit=limit if isinstance(limit, int) else None,
+            tier=validate.event_type(usage.get("tier")),
+            period=validate.text(usage.get("period"), 16),
+            used=_count(calls.get("used")),
+            limit=_count(calls.get("limit")),
             fetched=now,
             calls_since_fetch=0,
         )
 
+    def _vehicle_for(self, raw_psn: Any, raw_name: Any) -> FleetaVehicle | None:
+        """Find or create the vehicle for a row, if its serial is valid."""
+        camera = validate.psn(raw_psn)
+        if camera is None:
+            LOGGER.debug("Ignoring a FLEETA row with an invalid camera serial")
+            return None
+        vehicles = self._state.vehicles
+        vehicle = vehicles.get(camera)
+        if vehicle is None:
+            if len(vehicles) >= MAX_VEHICLES:
+                return None
+            vehicle = FleetaVehicle(psn=camera, name=validate.text(raw_name) or camera)
+            vehicles[camera] = vehicle
+        return vehicle
+
     async def _refresh_devices(self, now: datetime) -> None:
         """Read the dashcam list (names, models, firmware, battery)."""
-        rows = await self.api.get_devices()
-        vehicles = self._state.vehicles
-        for row in rows:
-            psn = str(row["psn"])
-            vehicle = vehicles.get(psn) or FleetaVehicle(psn=psn, name=str(row.get("name") or psn))
-            vehicle.name = str(row.get("name") or vehicle.name)
-            vehicle.model = row.get("model") if isinstance(row.get("model"), str) else vehicle.model
-            vehicle.firmware = row.get("fwVersion") if isinstance(row.get("fwVersion"), str) else vehicle.firmware
-            vehicle.status = row.get("status") if isinstance(row.get("status"), str) else vehicle.status
-            vehicle.last_connected = _parse_time(row.get("lastConnectedAt")) or vehicle.last_connected
+        for row in await self.api.get_devices():
+            vehicle = self._vehicle_for(row.get("psn"), row.get("name"))
+            if vehicle is None:
+                continue
+            vehicle.name = validate.text(row.get("name")) or vehicle.name
+            vehicle.model = validate.text(row.get("model")) or vehicle.model
+            vehicle.firmware = validate.text(row.get("fwVersion"), 32) or vehicle.firmware
+            vehicle.status = _status(row.get("status")) or vehicle.status
+            vehicle.last_connected = validate.timestamp(row.get("lastConnectedAt")) or vehicle.last_connected
             battery = row.get("battery") if isinstance(row.get("battery"), dict) else {}
-            vehicle.battery_connected = bool(battery.get("connected"))
+            vehicle.battery_connected = battery.get("connected") is True
             # When the battery pack is not connected the level key is missing:
             # leave it unknown rather than reporting 0 %.
-            vehicle.battery_level = _number(battery.get("level")) if vehicle.battery_connected else None
-            vehicles[psn] = vehicle
+            vehicle.battery_level = (
+                validate.number(battery.get("level"), 0.0, 100.0) if vehicle.battery_connected else None
+            )
         self._devices_fetched = now
 
     async def _refresh_locations(self) -> None:
         """Read the latest position of every dashcam."""
-        rows = await self.api.get_locations()
-        vehicles = self._state.vehicles
-        for row in rows:
-            psn = str(row["psn"])
-            vehicle = vehicles.get(psn)
+        for row in await self.api.get_locations():
+            known = validate.psn(row.get("psn")) in self._state.vehicles
+            vehicle = self._vehicle_for(row.get("psn"), row.get("name"))
             if vehicle is None:
-                vehicle = FleetaVehicle(psn=psn, name=str(row.get("name") or psn))
-                vehicles[psn] = vehicle
+                continue
+            if not known:
                 # A new camera: pick up its details on the next cycle.
                 self._devices_fetched = None
-            vehicle.latitude = _number(row.get("latitude"))
-            vehicle.longitude = _number(row.get("longitude"))
-            vehicle.speed_kmh = _number(row.get("speedKmh"))
-            vehicle.heading = _number(row.get("heading"))
-            vehicle.position_time = _parse_time(row.get("at"))
-            if isinstance(row.get("status"), str):
-                vehicle.status = row["status"]
+            position = validate.coordinates(row.get("latitude"), row.get("longitude"))
+            vehicle.latitude, vehicle.longitude = position if position else (None, None)
+            vehicle.speed_kmh = validate.speed(row.get("speedKmh"))
+            vehicle.heading = validate.heading(row.get("heading"))
+            vehicle.position_time = validate.timestamp(row.get("at"))
+            vehicle.status = _status(row.get("status")) or vehicle.status
             if vehicle.status == STATUS_OFFLINE:
                 vehicle.speed_kmh = None
 
@@ -316,16 +331,16 @@ class FleetaCoordinator(DataUpdateCoordinator[FleetaData]):
         all_events = list(events)
         # Catch up if more than one page arrived (rare; capped to protect the allowance).
         while self._events_cursor and has_more and pages < 3:
-            self._events_cursor = cursor
-            events, cursor, has_more = await self.api.get_events_feed(cursor)
+            self._events_cursor = validate.cursor(cursor) or self._events_cursor
+            events, cursor, has_more = await self.api.get_events_feed(self._events_cursor)
             all_events.extend(events)
             pages += 1
-        self._events_cursor = cursor
+        self._events_cursor = validate.cursor(cursor) or self._events_cursor
 
         signal = SIGNAL_NEW_EVENT.format(entry_id=self.config_entry.entry_id)
-        for event in all_events:
-            event_id = event.get("eventId")
-            if not isinstance(event_id, str) or event_id in self._seen_event_ids:
+        for raw in all_events:
+            event = validate.event(raw)
+            if event is None or event["event_id"] in self._seen_event_ids:
                 continue
-            self._seen_event_ids.append(event_id)
+            self._seen_event_ids.append(event["event_id"])
             async_dispatcher_send(self.hass, signal, event)

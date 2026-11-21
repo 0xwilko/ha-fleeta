@@ -46,21 +46,23 @@ class FleetaDashcamEvent(FleetaVehicleEntity, EventEntity):
 
     @callback
     def _handle_event(self, event: dict[str, Any]) -> None:
-        """Fire the event if it belongs to this dashcam."""
+        """Fire the event if it belongs to this dashcam.
+
+        The event has already been checked and cleaned by validate.event().
+        """
         if event.get("psn") != self.psn:
             return
-        raw_type = str(event.get("type") or EVENT_OTHER)
+        raw_type = event.get("type") or EVENT_OTHER
         event_type = raw_type if raw_type in EVENT_TYPES else EVENT_OTHER
-        location = event.get("location") if isinstance(event.get("location"), dict) else {}
         attributes: dict[str, Any] = {
             "fleeta_type": raw_type,
-            "event_id": event.get("eventId"),
-            "occurred_at": event.get("occurredAt"),
-            "speed_kmh": event.get("speedKmh"),
-            "latitude": location.get("latitude"),
-            "longitude": location.get("longitude"),
-            "has_video": event.get("hasVideo"),
-            "channels": event.get("channels") or [],
+            "event_id": event["event_id"],
+            "occurred_at": event["occurred_at"],
+            "speed_kmh": event["speed_kmh"],
+            "latitude": event["latitude"],
+            "longitude": event["longitude"],
+            "has_video": event["has_video"],
+            "channels": event["channels"],
         }
         self._trigger_event(event_type, attributes)
         self.async_write_ha_state()

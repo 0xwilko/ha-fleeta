@@ -11,7 +11,8 @@ from homeassistant.core import HomeAssistant
 
 from .coordinator import FleetaConfigEntry
 
-TO_REDACT = {CONF_API_KEY, "latitude", "longitude", "psn"}
+# Camera names are often number plates, so they are removed as well.
+TO_REDACT = {CONF_API_KEY, "latitude", "longitude", "psn", "name"}
 
 
 async def async_get_config_entry_diagnostics(

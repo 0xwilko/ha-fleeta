@@ -3,11 +3,31 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any
 
 import aiohttp
 
+from . import validate
 from .const import API_BASE_URL, API_TIMEOUT_SECONDS, LOGGER
+
+# FLEETA responses for one account are a few kilobytes; refuse anything huge.
+MAX_RESPONSE_BYTES = 2_000_000
+
+
+async def _read_limited(resp: aiohttp.ClientResponse, limit: int) -> bytes | None:
+    """Read the body, or return None as soon as it grows past the limit."""
+    declared = getattr(resp, "content_length", None)
+    if isinstance(declared, int) and declared > limit:
+        return None
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in resp.content.iter_chunked(65_536):
+        total += len(chunk)
+        if total > limit:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 class FleetaError(Exception):
@@ -67,14 +87,22 @@ class FleetaApi:
         }
         self.calls_made += 1
         try:
+            # Redirects are refused so the key can never be sent to another host.
             async with self._session.get(
                 url,
                 params=params,
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=API_TIMEOUT_SECONDS),
+                allow_redirects=False,
             ) as resp:
                 if resp.status == 200:
-                    body = await resp.json(content_type=None)
+                    raw = await _read_limited(resp, MAX_RESPONSE_BYTES)
+                    if raw is None:
+                        raise FleetaConnectionError(f"Response from {path} is too large")
+                    try:
+                        body = json.loads(raw)
+                    except ValueError as err:
+                        raise FleetaConnectionError(f"Invalid JSON from {path}") from err
                     if not isinstance(body, dict):
                         raise FleetaConnectionError(f"Unexpected response from {path}")
                     return body
@@ -94,15 +122,22 @@ class FleetaApi:
         and {message} from the gateway.
         """
         code: str | None = None
-        detail = getattr(resp, "reason", None) or ""
+        detail = validate.text(getattr(resp, "reason", None), 120) or ""
         try:
-            body = await resp.json(content_type=None)
-        except (aiohttp.ContentTypeError, ValueError):
+            raw = await _read_limited(resp, 16_384)
+            body = json.loads(raw) if raw else None
+        except (ValueError, aiohttp.ClientError):
             body = None
         if isinstance(body, dict):
-            code = body.get("code") if isinstance(body.get("code"), str) else None
-            detail = str(body.get("detail") or body.get("title") or body.get("message") or detail)
+            code = validate.event_type(body.get("code"))
+            for key in ("detail", "title", "message"):
+                cleaned = validate.text(body.get(key), 120)
+                if cleaned:
+                    detail = cleaned
+                    break
 
+        # Error text from the API is cleaned and shortened before it can reach
+        # the log or the Home Assistant UI.
         message = f"{path} returned {resp.status}: {detail}"
         LOGGER.debug("FLEETA API error: %s (code=%s)", message, code)
         if resp.status == 401:
