@@ -10,6 +10,10 @@ last GPS fix and last camera event.
 [![Open this repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=0xwilko&repository=ha-fleeta&category=integration)
 [![Add the FLEETA integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=fleeta)
 
+<img src="docs/images/fleeta-card.png" alt="The FLEETA Car card" width="420">
+
+*The FLEETA Car card, shown with example data. In Home Assistant the map is your own Home Assistant map.*
+
 ![FLEETA in Home Assistant](docs/images/integration-page.png)
 
 ## What you get
