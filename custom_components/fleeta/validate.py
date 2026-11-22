@@ -14,6 +14,7 @@ import re
 from typing import Any
 
 from homeassistant.util import dt as dt_util
+from yarl import URL
 
 # Dashcam serial numbers (psn) and event/cursor identifiers.
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-:.=+/]{1,128}$")
@@ -145,3 +146,91 @@ def event(raw: Any) -> dict[str, Any] | None:
         "has_video": raw.get("hasVideo") is True,
         "channels": channels(raw.get("channels")),
     }
+
+
+MAX_TRIP_KM = 3000.0
+MAX_TRIP_MINUTES = 3 * 24 * 60.0
+MAX_URL = 4096
+
+
+def _place(raw: Any) -> dict[str, float] | None:
+    """Return {latitude, longitude} from a FLEETA location object."""
+    if not isinstance(raw, dict):
+        return None
+    position = coordinates(raw.get("latitude"), raw.get("longitude"))
+    return {"latitude": position[0], "longitude": position[1]} if position else None
+
+
+def trip(raw: Any) -> dict[str, Any] | None:
+    """Build a clean trip from GET /v1/devices/{psn}/trips, or None.
+
+    FLEETA's average speed is sometimes higher than its maximum, so it is not
+    used. When the duration is missing it is worked out from the start and end
+    times; a trip with no end time is treated as not finished.
+    """
+    if not isinstance(raw, dict):
+        return None
+    trip_id = identifier(raw.get("tripId"))
+    started = timestamp(raw.get("startedAt"))
+    if trip_id is None or started is None:
+        return None
+    ended = timestamp(raw.get("endedAt"))
+    if ended is not None and ended < started:
+        ended = None
+    minutes = number(raw.get("durationMin"), 0.0, MAX_TRIP_MINUTES)
+    if minutes is None and ended is not None:
+        minutes = number((ended - started).total_seconds() / 60, 0.0, MAX_TRIP_MINUTES)
+    return {
+        "trip_id": trip_id,
+        "started_at": started,
+        "ended_at": ended,
+        "distance_km": number(raw.get("distanceKm"), 0.0, MAX_TRIP_KM),
+        "duration_min": round(minutes, 1) if minutes is not None else None,
+        "max_speed_kmh": speed(raw.get("maxSpeedKmh")),
+        "start": _place(raw.get("startLocation")),
+        "end": _place(raw.get("endLocation")),
+    }
+
+
+def https_url(value: Any) -> str | None:
+    """Return a plain https URL to a named host, or None.
+
+    Used for the short-lived picture links FLEETA hands out. Addresses typed as
+    numbers and local names are refused so a bad link cannot reach the home
+    network.
+    """
+    if not isinstance(value, str) or len(value) > MAX_URL or _CONTROL.search(value):
+        return None
+    try:
+        parsed = URL(value)
+    except ValueError:
+        return None
+    host = (parsed.host or "").lower().rstrip(".")
+    if parsed.scheme != "https" or not host or "." not in host or parsed.user or parsed.password:
+        return None
+    if host == "localhost" or host.endswith((".local", ".lan", ".internal", ".home.arpa", ".localhost")):
+        return None
+    if _IP_HOST.fullmatch(host) or ":" in host:
+        return None
+    return value
+
+
+_IP_HOST = re.compile(r"^[0-9.]+$")
+
+# JPEG, PNG and WebP start with these bytes.
+_IMAGE_SIGNATURES = (
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+)
+
+
+def image_type(data: Any) -> str | None:
+    """Return the picture's content type if the bytes really are a picture."""
+    if not isinstance(data, (bytes, bytearray)) or len(data) < 12:
+        return None
+    for signature, content_type in _IMAGE_SIGNATURES:
+        if data.startswith(signature):
+            return content_type
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None

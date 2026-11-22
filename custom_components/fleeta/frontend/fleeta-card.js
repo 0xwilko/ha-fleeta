@@ -4,7 +4,7 @@
 (() => {
   const TAG = 'fleeta-card';
   if (customElements.get(TAG)) return;
-  const VERSION = '1.2.1';
+  const VERSION = '1.3.0';
 
   const DEFAULTS = { place: 'zone', hours_to_show: 24, map_theme: 'light', show_map: true };
   const BAD = ['unavailable', 'unknown', ''];
@@ -68,6 +68,17 @@
     return new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   };
 
+  const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const compass = (deg) => COMPASS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+  const words = (s) => { const t = String(s || '').replace(/_/g, ' ').trim(); return t ? t.charAt(0).toUpperCase() + t.slice(1) : ''; };
+  const mins = (m) => {
+    const n = Number(m);
+    if (!isFinite(n) || n <= 0) return '';
+    if (n < 60) return Math.round(n) + ' min';
+    const h = Math.floor(n / 60), r = Math.round(n % 60);
+    return h + ' h' + (r ? ' ' + r + ' min' : '');
+  };
+
   const CSS = `
   :host{display:block}
   *{box-sizing:border-box}
@@ -105,6 +116,14 @@
   .val{font-size:21px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .val.long{font-size:16.5px;line-height:1.15;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
   .lbl{margin-top:2px;font-size:13.5px;color:#9db0da;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile.wide{grid-column:1 / -1;padding:10px 16px 10px 10px;gap:14px}
+  .pic{flex:none;width:46%;max-width:220px;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#0a1228;
+    border:1px solid rgba(125,155,255,.30);box-shadow:0 4px 14px rgba(0,0,0,.35)}
+  .pic img{display:block;width:100%;height:100%;object-fit:cover}
+  .tile.wide .ic{flex:none;--mdc-icon-size:30px;color:#5a86ff;margin-left:6px}
+  .tile.has-pic .ic{display:none}
+  .tile:not(.has-pic) .pic{display:none}
+  .dir{transition:transform .6s ease}
   .msg{padding:22px 6px;text-align:center;color:#c9d4ee;font-size:15px;line-height:1.5}
   .ver{margin-top:10px;text-align:right;font-size:11px;letter-spacing:.3px;color:rgba(157,176,218,.55);user-select:none}
   @media (max-width:420px){.name{font-size:21px}.val{font-size:18px}.tile{padding:12px}.tile ha-icon{--mdc-icon-size:26px}}
@@ -212,6 +231,8 @@
         gps: ['sensor', 'last_gps_fix'],
         conn: ['binary_sensor', 'cloud_connection'],
         event: ['event', 'dashcam_event'],
+        trip: ['sensor', 'last_trip'],
+        picture: ['image', 'last_event_picture'],
       };
       const mine = dev ? Object.values(reg).filter((x) => x.device_id === dev) : [];
       Object.keys(want).forEach((k) => {
@@ -249,7 +270,8 @@
           <div class="tile t-status" role="button" tabindex="0"><ha-icon icon="mdi:car-brake-parking"></ha-icon><div class="txt"><div class="val"></div><div class="lbl">Status</div></div></div>
           <div class="tile t-speed" role="button" tabindex="0"><ha-icon icon="mdi:speedometer"></ha-icon><div class="txt"><div class="val"></div><div class="lbl">Speed</div></div></div>
           <div class="tile t-gps" role="button" tabindex="0"><ha-icon icon="mdi:crosshairs-gps"></ha-icon><div class="txt"><div class="val"></div><div class="lbl">Last GPS fix</div></div></div>
-          <div class="tile t-event" role="button" tabindex="0"><ha-icon icon="mdi:cctv"></ha-icon><div class="txt"><div class="val"></div><div class="lbl"></div></div></div>
+          <div class="tile t-trip" role="button" tabindex="0"><ha-icon icon="mdi:map-marker-distance"></ha-icon><div class="txt"><div class="val"></div><div class="lbl"></div></div></div>
+          <div class="tile wide t-event" role="button" tabindex="0"><div class="pic"><img alt="Dashcam picture of the last event"></div><ha-icon class="ic" icon="mdi:cctv"></ha-icon><div class="txt"><div class="val"></div><div class="lbl"></div></div></div>
         </div>
         <div class="msg" hidden></div>
         <div class="ver"></div>`;
@@ -260,9 +282,10 @@
         card, head: q('.head'), name: q('.name'), place: q('.place'), pill: q('.pill'), pillIcon: q('.pill ha-icon'), pillTxt: q('.pill span'),
         map: q('.map'), tiles: q('.tiles'), msg: q('.msg'), ver: q('.ver'),
         status: q('.t-status'), statusIcon: q('.t-status ha-icon'), statusVal: q('.t-status .val'),
-        speed: q('.t-speed'), speedVal: q('.t-speed .val'),
+        speed: q('.t-speed'), speedIcon: q('.t-speed ha-icon'), speedVal: q('.t-speed .val'), speedLbl: q('.t-speed .lbl'),
         gps: q('.t-gps'), gpsVal: q('.t-gps .val'),
-        event: q('.t-event'), eventIcon: q('.t-event ha-icon'), eventVal: q('.t-event .val'), eventLbl: q('.t-event .lbl'),
+        trip: q('.t-trip'), tripVal: q('.t-trip .val'), tripLbl: q('.t-trip .lbl'),
+        event: q('.t-event'), eventIcon: q('.t-event .ic'), eventVal: q('.t-event .val'), eventLbl: q('.t-event .lbl'), eventImg: q('.t-event img'),
       };
       const open = (key) => () => { const id = this._ids && this._ids[key]; if (id) this._moreInfo(id); };
       const bind = (node, key) => {
@@ -273,7 +296,8 @@
       bind(this._el.status, 'status');
       bind(this._el.speed, 'speed');
       bind(this._el.gps, 'gps');
-      bind(this._el.event, 'event');
+      bind(this._el.trip, 'trip');
+      bind(this._el.event, 'eventTap');
     }
     _moreInfo(entityId) {
       this.dispatchEvent(new CustomEvent('hass-more-info', { detail: { entityId }, bubbles: true, composed: true }));
@@ -331,7 +355,7 @@
       this._ids = ids;
 
       // only redraw when one of our entities has changed (or the clock ticks)
-      const watch = ['tracker', 'status', 'speed', 'gps', 'conn', 'event'].map((k) => ids[k] && h.states[ids[k]]);
+      const watch = ['tracker', 'status', 'speed', 'gps', 'conn', 'event', 'trip', 'picture'].map((k) => ids[k] && h.states[ids[k]]);
       if (!force && this._last && watch.every((s, i) => s === this._last[i])) { if (this._map) this._map.hass = h; return; }
       this._last = watch;
       this._ensureMap(trackerId);
@@ -358,20 +382,54 @@
       el.statusIcon.setAttribute('icon', !ok(status) ? 'mdi:car-info' : status.state === 'driving' ? 'mdi:car-arrow-right' : status.state === 'offline' ? 'mdi:car-off' : 'mdi:car-brake-parking');
       const speed = st('speed');
       el.speedVal.textContent = ok(speed) ? fmt(speed) : '-';
+      // While driving, the speed tile shows which way the car is heading.
+      const heading = Number((tracker.attributes || {}).heading);
+      const driving = ok(status) && status.state === 'driving' && tracker.attributes.heading != null && isFinite(heading);
+      el.speedIcon.setAttribute('icon', driving ? 'mdi:navigation' : 'mdi:speedometer');
+      el.speedIcon.classList.toggle('dir', driving);
+      el.speedIcon.style.transform = driving ? 'rotate(' + Math.round(heading) + 'deg)' : '';
+      el.speedLbl.textContent = driving ? 'Speed · ' + compass(heading) : 'Speed';
+
       const gps = st('gps');
       el.gpsVal.textContent = ok(gps) ? (ago(gps.state) || '-') : '-';
-      const ev = st('event');
+
+      const trip = st('trip');
+      el.trip.hidden = !ids.trip;
+      el.tripVal.textContent = ok(trip) ? fmt(trip) : '-';
+      const tripTime = ok(trip) ? mins(trip.attributes.duration_minutes) : '';
+      el.tripLbl.textContent = 'Last trip' + (tripTime ? ' · ' + tripTime : '');
+
+      this._drawEvent(st('event'), st('picture'), ok);
+      // long names (e.g. "Harsh acceleration") drop a size and may use two lines
+      [el.statusVal, el.speedVal, el.gpsVal, el.tripVal, el.eventVal].forEach((v) => v.classList.toggle('long', v.textContent.length > 12));
+    }
+
+    _drawEvent(ev, pic, ok) {
+      const h = this._hass;
+      const el = this._el;
+      const evId = ok(ev) ? ev.attributes.event_id : null;
+      const pa = (pic && pic.attributes) || {};
+      const src = typeof pa.entity_picture === 'string' && pa.entity_picture.startsWith('/api/image_proxy/') ? pa.entity_picture : '';
+      // Only show the picture when it belongs to the latest event.
+      const showPic = !!src && ok(pic) && (!evId || pa.event_id === evId);
+      el.event.classList.toggle('has-pic', showPic);
+      el.eventIcon.style.display = showPic ? 'none' : '';
+      if (showPic && el.eventImg.getAttribute('src') !== src) el.eventImg.setAttribute('src', src);
+      if (!showPic && el.eventImg.hasAttribute('src')) el.eventImg.removeAttribute('src');
+      this._ids.eventTap = showPic ? this._ids.picture : this._ids.event;
+
       if (ok(ev) && ev.attributes.event_type) {
         let label = ev.attributes.event_type;
         try { if (h.formatEntityAttributeValue) label = h.formatEntityAttributeValue(ev, 'event_type'); } catch (e) { /* keep raw */ }
         el.eventVal.textContent = clean(label);
         el.eventLbl.textContent = 'Last event · ' + ago(ev.state);
+      } else if (showPic && pa.event_type) {
+        el.eventVal.textContent = clean(words(pa.event_type));
+        el.eventLbl.textContent = 'Last event' + (pa.occurred_at ? ' · ' + ago(pa.occurred_at) : '');
       } else {
         el.eventVal.textContent = 'None yet';
         el.eventLbl.textContent = 'Last event';
       }
-      // long names (e.g. "Harsh acceleration") drop a size and may use two lines
-      [el.statusVal, el.speedVal, el.gpsVal, el.eventVal].forEach((v) => v.classList.toggle('long', v.textContent.length > 12));
     }
 
     _drawPlace(tracker, ok, fmt) {
@@ -405,7 +463,7 @@
   window.customCards.push({
     type: TAG,
     name: 'FLEETA Car',
-    description: 'Your BlackVue dashcam car: map, route, status, speed and the last camera event.',
+    description: 'Your BlackVue dashcam car: map, route, status, speed, last trip and the last camera event with its picture.',
     preview: true,
     documentationURL: 'https://github.com/0xwilko/ha-fleeta',
   });

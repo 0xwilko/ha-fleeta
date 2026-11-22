@@ -4,15 +4,16 @@ Brings your BlackVue cloud dashcam into Home Assistant using the official
 [FLEETA Open API](https://developers.fleeta.io/). See where the car is on your
 map, whether it is home or away, its speed, and get an alert in Home Assistant
 when the camera records a parking bump or a harsh brake. It comes with its own
-**FLEETA Car** dashboard card: a map with the car's route, its status, speed,
-last GPS fix and last camera event.
+**FLEETA Car** dashboard card: a map with the car's route, its status, speed
+(with a direction arrow while driving), last GPS fix, last trip, and the last
+camera event with the camera's own picture.
 
 [![Open this repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=0xwilko&repository=ha-fleeta&category=integration)
 [![Add the FLEETA integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=fleeta)
 
 <img src="docs/images/fleeta-card.png" alt="The FLEETA Car card" width="420">
 
-*The FLEETA Car card, shown with example data. In Home Assistant the map is your own Home Assistant map.*
+*The FLEETA Car card, shown with example data and an illustrated picture. In Home Assistant the map is your own Home Assistant map and the picture comes from your dashcam.*
 
 ![FLEETA in Home Assistant](docs/images/integration-page.png)
 
@@ -26,6 +27,8 @@ For each dashcam on your FLEETA account:
 | Speed | Last reported speed (mph by default) |
 | Status | Driving, Parked or Offline |
 | Last GPS fix | When the position was last updated |
+| Last trip | How far the last finished trip went (miles by default), with its start and end times and how long it took |
+| Last event picture | The camera's still picture of the latest event that has video |
 | Dashcam event | Fires on parking impacts, driving impacts, harsh braking and other camera events |
 | Cloud connection | Whether the camera is connected to the FLEETA cloud |
 | Battery | Battery pack level (only if a BlackVue battery pack is fitted) |
@@ -95,8 +98,11 @@ dashboard resource to add.
 3. Click **Save**.
 
 It shows the car's name and where it is, an Online or Offline badge, a live map
-with the car's route, and four tiles: **Status**, **Speed**, **Last GPS fix** and
-**Last event**. Tap any tile for its history.
+with the car's route, and tiles for **Status**, **Speed**, **Last GPS fix**,
+**Last trip** and **Last event**. While the car is driving, the speed tile shows an
+arrow pointing the way it is heading. The last event tile shows the dashcam's
+own picture of that moment; tap it to see the picture large. Tap any other tile
+for its history.
 
 | Option | Default | What it does |
 |---|---|---|
@@ -166,8 +172,15 @@ your allowance.
 - Your API key is stored only in Home Assistant. It is never written to the log.
 - Read-only: the integration never changes camera settings and never requests
   video, so it does not use your video allowance or the camera's mobile data.
-- It only ever talks to `openapi.fleeta.io` and refuses redirects, so the key
-  cannot be sent anywhere else.
+- It talks to `openapi.fleeta.io` and refuses redirects, so the key cannot be sent
+  anywhere else. Event pictures are downloaded from the short-lived signed link
+  FLEETA gives with each event; the key is never sent with that download, links
+  to local or numeric addresses are refused, and only real JPEG, PNG or WebP
+  pictures are kept. Home Assistant then serves the picture to your dashboards
+  itself.
+- The last trip is read once when a drive ends (and every few hours), and a
+  picture only when a new event with video arrives, so these use very few of your
+  monthly API calls.
 - Everything that comes back from FLEETA is checked before Home Assistant sees
   it. Text is cleaned and shortened, and numbers must be in a sensible range.
 - The FLEETA Car card only talks to your own Home Assistant. The one exception is

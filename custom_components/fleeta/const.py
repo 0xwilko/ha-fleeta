@@ -29,6 +29,8 @@ CALLS_PER_CYCLE: Final = 2
 # Slower refreshes for data that rarely changes.
 DEVICES_REFRESH: Final = timedelta(hours=3)
 USAGE_REFRESH: Final = timedelta(hours=6)
+# The last trip is read when a drive ends, and at least this often.
+TRIPS_REFRESH: Final = timedelta(hours=6)
 
 # Automatic pacing limits.
 MIN_INTERVAL: Final = timedelta(minutes=2)

@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfSpeed, UnitOfTime
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength, UnitOfSpeed, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -111,13 +111,15 @@ async def async_setup_entry(
         FleetaAccountSensor(coordinator, description) for description in ACCOUNT_SENSORS
     )
 
-    def _factory(coordinator: FleetaCoordinator, psn: str) -> list[FleetaVehicleSensor]:
+    def _factory(coordinator: FleetaCoordinator, psn: str) -> list[SensorEntity]:
         vehicle = coordinator.data.vehicles[psn]
-        return [
+        sensors: list[SensorEntity] = [
             FleetaVehicleSensor(coordinator, psn, description)
             for description in VEHICLE_SENSORS
             if description.exists_fn(vehicle)
         ]
+        sensors.append(FleetaLastTripSensor(coordinator, psn))
+        return sensors
 
     async_add_vehicle_entities(entry, async_add_entities, _factory)
 
@@ -161,3 +163,45 @@ class FleetaAccountSensor(FleetaAccountEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Extra details."""
         return self.entity_description.attrs_fn(self.coordinator.data)
+
+
+class FleetaLastTripSensor(FleetaVehicleEntity, SensorEntity):
+    """How far the last finished trip went, with its times as attributes."""
+
+    _attr_translation_key = "last_trip"
+    _attr_device_class = SensorDeviceClass.DISTANCE
+    _attr_native_unit_of_measurement = UnitOfLength.KILOMETERS
+    _attr_suggested_unit_of_measurement = UnitOfLength.MILES
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, coordinator: FleetaCoordinator, psn: str) -> None:
+        super().__init__(coordinator, psn, "last_trip")
+
+    @property
+    def _trip(self) -> dict[str, Any] | None:
+        return self.coordinator.data.trips.get(self.psn)
+
+    @property
+    def native_value(self) -> float | None:
+        """Distance of the last trip."""
+        trip = self._trip
+        return trip["distance_km"] if trip else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """When the trip started and ended, how long it took and where it went."""
+        trip = self._trip
+        if not trip:
+            return {}
+        start = trip["start"] or {}
+        end = trip["end"] or {}
+        return {
+            "started_at": trip["started_at"].isoformat(),
+            "ended_at": trip["ended_at"].isoformat() if trip["ended_at"] else None,
+            "duration_minutes": trip["duration_min"],
+            "max_speed_kmh": trip["max_speed_kmh"],
+            "start_latitude": start.get("latitude"),
+            "start_longitude": start.get("longitude"),
+            "end_latitude": end.get("latitude"),
+            "end_longitude": end.get("longitude"),
+        }

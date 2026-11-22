@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
+from urllib.parse import quote
 
 import aiohttp
 
@@ -13,6 +14,8 @@ from .const import API_BASE_URL, API_TIMEOUT_SECONDS, LOGGER
 
 # FLEETA responses for one account are a few kilobytes; refuse anything huge.
 MAX_RESPONSE_BYTES = 2_000_000
+# Event pictures are small stills; anything bigger is refused.
+MAX_PICTURE_BYTES = 1_500_000
 
 
 async def _read_limited(resp: aiohttp.ClientResponse, limit: int) -> bytes | None:
@@ -203,3 +206,48 @@ class FleetaApi:
             # Bootstrap call: only the position matters.
             events = []
         return events, cursor, bool(pagination.get("hasMore"))
+
+    async def get_trips(self, psn: str) -> list[dict[str, Any]]:
+        """Return the dashcam's recent trips (GET /v1/devices/{psn}/trips)."""
+        body = await self._get(f"/v1/devices/{quote(psn, safe='')}/trips", {"limit": 20})
+        rows = body.get("data")
+        return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+    async def get_recent_events(self, psn: str) -> list[dict[str, Any]]:
+        """Return the dashcam's latest events with their picture links.
+
+        GET /v1/events?include=thumbnail puts a short-lived picture link on
+        each row in the same single call.
+        """
+        body = await self._get("/v1/events", {"psn": psn, "limit": 5, "include": "thumbnail"})
+        rows = body.get("data")
+        return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+    async def download_picture(self, url: str) -> tuple[bytes, str] | None:
+        """Download an event picture from the link FLEETA handed out.
+
+        The link is already signed, so the API key is never sent with it.
+        Only real JPEG, PNG or WebP pictures under the size limit are kept.
+        Returns None if the picture cannot be fetched.
+        """
+        safe_url = validate.https_url(url)
+        if safe_url is None:
+            return None
+        try:
+            async with self._session.get(
+                safe_url,
+                headers={"Accept": "image/*"},
+                timeout=aiohttp.ClientTimeout(total=API_TIMEOUT_SECONDS),
+                allow_redirects=False,
+            ) as resp:
+                if resp.status != 200:
+                    LOGGER.debug("FLEETA picture download returned %s", resp.status)
+                    return None
+                data = await _read_limited(resp, MAX_PICTURE_BYTES)
+        except (TimeoutError, asyncio.TimeoutError, aiohttp.ClientError) as err:
+            LOGGER.debug("FLEETA picture download failed: %s", type(err).__name__)
+            return None
+        content_type = validate.image_type(data)
+        if data is None or content_type is None:
+            return None
+        return data, content_type

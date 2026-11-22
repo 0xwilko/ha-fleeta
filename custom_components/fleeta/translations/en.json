@@ -85,6 +85,11 @@
         }
       }
     },
+    "image": {
+      "last_event_picture": {
+        "name": "Last event picture"
+      }
+    },
     "sensor": {
       "speed": {
         "name": "Speed"
@@ -105,6 +110,9 @@
       },
       "update_interval": {
         "name": "Update interval"
+      },
+      "last_trip": {
+        "name": "Last trip"
       }
     }
   },

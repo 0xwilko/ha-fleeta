@@ -45,6 +45,14 @@
       },
       "update_interval": {
         "default": "mdi:timer-sync-outline"
+      },
+      "last_trip": {
+        "default": "mdi:map-marker-distance"
+      }
+    },
+    "image": {
+      "last_event_picture": {
+        "default": "mdi:image"
       }
     }
   }

@@ -41,6 +41,7 @@ from .const import (
     STATUS_DRIVING,
     STATUS_OFFLINE,
     STATUSES,
+    TRIPS_REFRESH,
     USAGE_REFRESH,
 )
 
@@ -49,6 +50,13 @@ type FleetaConfigEntry = ConfigEntry[FleetaCoordinator]
 # A FLEETA account should never hold more cameras than this; anything beyond
 # it is ignored so a bad response cannot flood Home Assistant with devices.
 MAX_VEHICLES = 100
+
+# Trips and event pictures are only fetched for this many cameras, so a large
+# fleet cannot use up the allowance on extras.
+MAX_EXTRA_VEHICLES = 5
+# A new event's picture can take a little while to appear; try a few cycles.
+PICTURE_ATTEMPTS = 3
+TRIP_RETRY = timedelta(minutes=30)
 
 
 def _status(value: Any) -> str | None:
@@ -112,12 +120,27 @@ class FleetaUsage:
 
 
 @dataclass
+class FleetaPicture:
+    """The still picture of a dashcam's latest event."""
+
+    event_id: str
+    event_type: str | None
+    occurred_at: datetime | None
+    data: bytes = field(repr=False)
+    content_type: str
+    fetched: datetime
+
+
+@dataclass
 class FleetaData:
     """Everything the entities read."""
 
     vehicles: dict[str, FleetaVehicle] = field(default_factory=dict)
     usage: FleetaUsage = field(default_factory=FleetaUsage)
     interval: timedelta = FALLBACK_INTERVAL
+    # Kept apart from the vehicles so diagnostics never include them.
+    trips: dict[str, dict[str, Any]] = field(default_factory=dict)
+    pictures: dict[str, FleetaPicture] = field(default_factory=dict)
 
 
 def _seconds_left_in_month(now: datetime) -> float:
@@ -188,6 +211,11 @@ class FleetaCoordinator(DataUpdateCoordinator[FleetaData]):
         self._events_cursor: str | None = None
         self._seen_event_ids: deque[str] = deque(maxlen=200)
         self._state = FleetaData()
+        # Trip and picture bookkeeping, per camera.
+        self._last_status: dict[str, str | None] = {}
+        self._trips_checked: dict[str, datetime] = {}
+        self._pictures_checked: set[str] = set()
+        self._picture_wanted: dict[str, tuple[str, int]] = {}
 
     @property
     def fixed_minutes(self) -> int:
@@ -207,6 +235,7 @@ class FleetaCoordinator(DataUpdateCoordinator[FleetaData]):
                 await self._refresh_devices(now)
             await self._refresh_locations()
             await self._refresh_events()
+            await self._refresh_extras(now)
         except FleetaAuthError as err:
             raise ConfigEntryAuthFailed(
                 translation_domain=DOMAIN, translation_key="invalid_auth"
@@ -344,3 +373,95 @@ class FleetaCoordinator(DataUpdateCoordinator[FleetaData]):
                 continue
             self._seen_event_ids.append(event["event_id"])
             async_dispatcher_send(self.hass, signal, event)
+            if event["has_video"] and event["psn"] in self._state.vehicles:
+                # Fetch this event's picture (the newest event wins).
+                self._picture_wanted[event["psn"]] = (event["event_id"], 0)
+
+    async def _refresh_extras(self, now: datetime) -> None:
+        """Fetch the last trip and the latest event picture when they change.
+
+        These are extras: a failure here is logged and tried again later, and
+        never marks the cameras unavailable. Only a rejected key or a used-up
+        monthly allowance stops the update.
+        """
+        for psn in list(self._state.vehicles)[:MAX_EXTRA_VEHICLES]:
+            vehicle = self._state.vehicles[psn]
+            try:
+                await self._refresh_trip(psn, vehicle, now)
+                await self._refresh_picture(psn, now)
+            except FleetaAuthError:
+                raise
+            except FleetaRateLimitError as err:
+                if err.monthly_limit:
+                    raise
+                LOGGER.debug("FLEETA asked to slow down; trip and picture wait: %s", err)
+                return
+            except FleetaError as err:
+                LOGGER.debug("FLEETA trip or picture not available yet: %s", err)
+            finally:
+                self._last_status[psn] = vehicle.status
+
+    async def _refresh_trip(self, psn: str, vehicle: FleetaVehicle, now: datetime) -> None:
+        """Read the last trip once a drive has ended (and now and then)."""
+        if vehicle.status == STATUS_DRIVING:
+            return
+        checked = self._trips_checked.get(psn)
+        drive_ended = self._last_status.get(psn) == STATUS_DRIVING
+        if checked is not None and not drive_ended and now - checked < TRIPS_REFRESH:
+            return
+        # If the call fails, try again in half an hour rather than waiting hours.
+        self._trips_checked[psn] = now - TRIPS_REFRESH + TRIP_RETRY
+        rows = await self.api.get_trips(psn)
+        self._trips_checked[psn] = now
+        trips = [trip for trip in map(validate.trip, rows) if trip]
+        # Only finished trips that went somewhere; newest first.
+        finished = [trip for trip in trips if trip["ended_at"] and trip["distance_km"]]
+        if finished:
+            self._state.trips[psn] = max(finished, key=lambda trip: trip["ended_at"])
+
+    async def _refresh_picture(self, psn: str, now: datetime) -> None:
+        """Fetch the picture for a new event (or the latest one at start-up)."""
+        wanted = self._picture_wanted.get(psn)
+        if wanted is None and psn in self._pictures_checked:
+            return
+        self._pictures_checked.add(psn)
+        rows = await self.api.get_recent_events(psn)
+        candidates: list[tuple[dict[str, Any], str]] = []
+        for raw in rows:
+            event = validate.event(raw)
+            url = raw.get("thumbnailUrl")
+            if event and event["psn"] == psn and isinstance(url, str) and url:
+                candidates.append((event, url))
+
+        if wanted is not None:
+            event_id, attempts = wanted
+            match = next(((e, u) for e, u in candidates if e["event_id"] == event_id), None)
+            if match is None:
+                # The picture is not ready yet: try again next cycle, a few times.
+                if attempts + 1 >= PICTURE_ATTEMPTS:
+                    self._picture_wanted.pop(psn, None)
+                else:
+                    self._picture_wanted[psn] = (event_id, attempts + 1)
+                return
+            self._picture_wanted.pop(psn, None)
+        else:
+            if not candidates:
+                return
+            match = max(candidates, key=lambda item: item[0]["occurred_at"] or "")
+
+        event, url = match
+        current = self._state.pictures.get(psn)
+        if current is not None and current.event_id == event["event_id"]:
+            return
+        picture = await self.api.download_picture(url)
+        if picture is None:
+            return
+        data, content_type = picture
+        self._state.pictures[psn] = FleetaPicture(
+            event_id=event["event_id"],
+            event_type=event["type"],
+            occurred_at=validate.timestamp(event["occurred_at"]),
+            data=data,
+            content_type=content_type,
+            fetched=now,
+        )
