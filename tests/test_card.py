@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,6 +12,20 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.fleeta import _async_register_card
 from custom_components.fleeta.const import CARD_URL, DOMAIN, WEB_VIEWER_URL
+
+
+COMPONENT = Path(__file__).parent.parent / "custom_components" / DOMAIN
+
+
+def _manifest_version() -> str:
+    return json.loads((COMPONENT / "manifest.json").read_text())["version"]
+
+
+def test_card_version_matches_integration() -> None:
+    """The version shown on the card is the integration's version."""
+    js = (COMPONENT / "frontend" / "fleeta-card.js").read_text()
+    found = re.search(r"const VERSION = '([0-9.]+)';", js)
+    assert found and found.group(1) == _manifest_version()
 
 
 async def test_card_is_served_and_loaded_once(hass: HomeAssistant) -> None:
@@ -25,7 +41,7 @@ async def test_card_is_served_and_loaded_once(hass: HomeAssistant) -> None:
     assert served.url_path == CARD_URL
     assert Path(served.path).is_file()
     add_js.assert_called_once()
-    assert add_js.call_args[0][1] == f"{CARD_URL}?v=1.2.0"
+    assert add_js.call_args[0][1] == f"{CARD_URL}?v={_manifest_version()}"
 
 
 async def test_card_problem_never_blocks_setup(hass: HomeAssistant) -> None:

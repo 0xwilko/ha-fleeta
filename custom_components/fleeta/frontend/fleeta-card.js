@@ -4,7 +4,7 @@
 (() => {
   const TAG = 'fleeta-card';
   if (customElements.get(TAG)) return;
-  const VERSION = '1.2.0';
+  const VERSION = '1.2.1';
 
   const DEFAULTS = { place: 'zone', hours_to_show: 24, map_theme: 'light', show_map: true };
   const BAD = ['unavailable', 'unknown', ''];
@@ -106,6 +106,7 @@
   .val.long{font-size:16.5px;line-height:1.15;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
   .lbl{margin-top:2px;font-size:13.5px;color:#9db0da;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .msg{padding:22px 6px;text-align:center;color:#c9d4ee;font-size:15px;line-height:1.5}
+  .ver{margin-top:10px;text-align:right;font-size:11px;letter-spacing:.3px;color:rgba(157,176,218,.55);user-select:none}
   @media (max-width:420px){.name{font-size:21px}.val{font-size:18px}.tile{padding:12px}.tile ha-icon{--mdc-icon-size:26px}}
   `;
 
@@ -250,12 +251,14 @@
           <div class="tile t-gps" role="button" tabindex="0"><ha-icon icon="mdi:crosshairs-gps"></ha-icon><div class="txt"><div class="val"></div><div class="lbl">Last GPS fix</div></div></div>
           <div class="tile t-event" role="button" tabindex="0"><ha-icon icon="mdi:cctv"></ha-icon><div class="txt"><div class="val"></div><div class="lbl"></div></div></div>
         </div>
-        <div class="msg" hidden></div>`;
+        <div class="msg" hidden></div>
+        <div class="ver"></div>`;
       root.append(style, card);
       const q = (s) => card.querySelector(s);
+      q('.ver').textContent = 'FLEETA Car v' + VERSION;
       this._el = {
         card, head: q('.head'), name: q('.name'), place: q('.place'), pill: q('.pill'), pillIcon: q('.pill ha-icon'), pillTxt: q('.pill span'),
-        map: q('.map'), tiles: q('.tiles'), msg: q('.msg'),
+        map: q('.map'), tiles: q('.tiles'), msg: q('.msg'), ver: q('.ver'),
         status: q('.t-status'), statusIcon: q('.t-status ha-icon'), statusVal: q('.t-status .val'),
         speed: q('.t-speed'), speedVal: q('.t-speed .val'),
         gps: q('.t-gps'), gpsVal: q('.t-gps .val'),
