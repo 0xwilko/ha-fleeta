@@ -143,6 +143,28 @@ class FleetaData:
     pictures: dict[str, FleetaPicture] = field(default_factory=dict)
 
 
+def _trip_end(trip: dict[str, Any], vehicle: FleetaVehicle, now: datetime) -> datetime | None:
+    """Work out when a trip ended when FLEETA has not filled in the end time.
+
+    FLEETA sometimes leaves the end time empty. If it gave a duration, the end
+    is the start plus the duration. Otherwise, if the trip started in the last
+    day and the car has stopped since, the trip ended at the car's last GPS fix.
+    Old trips with no end are left as not finished.
+    """
+    started: datetime = trip["started_at"]
+    if trip["duration_min"]:
+        return started + timedelta(minutes=trip["duration_min"])
+    fix = vehicle.position_time
+    if (
+        vehicle.status != STATUS_DRIVING
+        and fix is not None
+        and started < fix <= now
+        and now - started <= timedelta(days=1)
+    ):
+        return fix
+    return None
+
+
 def _seconds_left_in_month(now: datetime) -> float:
     """Seconds until the allowance resets (1st of next month, UTC)."""
     now_utc = dt_util.as_utc(now)
@@ -414,8 +436,22 @@ class FleetaCoordinator(DataUpdateCoordinator[FleetaData]):
         rows = await self.api.get_trips(psn)
         self._trips_checked[psn] = now
         trips = [trip for trip in map(validate.trip, rows) if trip]
+        for trip in trips:
+            if trip["ended_at"] is None:
+                trip["ended_at"] = _trip_end(trip, vehicle, now)
         # Only finished trips that went somewhere; newest first.
         finished = [trip for trip in trips if trip["ended_at"] and trip["distance_km"]]
+        newest = max(trips, key=lambda trip: trip["started_at"], default=None)
+        LOGGER.debug(
+            "FLEETA trips: %s row(s), %s usable, %s finished; newest started %s, ended %s, %s km, %s min",
+            len(rows),
+            len(trips),
+            len(finished),
+            newest["started_at"].isoformat() if newest else None,
+            newest["ended_at"].isoformat() if newest and newest["ended_at"] else None,
+            newest["distance_km"] if newest else None,
+            newest["duration_min"] if newest else None,
+        )
         if finished:
             self._state.trips[psn] = max(finished, key=lambda trip: trip["ended_at"])
 

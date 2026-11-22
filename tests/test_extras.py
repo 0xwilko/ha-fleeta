@@ -207,3 +207,22 @@ def test_trip_cleaning() -> None:
     assert validate.trip({"tripId": "x"}) is None
     assert validate.trip(dict(TRIPS["data"][0], distanceKm=1e9))["distance_km"] is None
     assert validate.trip("nope") is None
+
+
+def test_trip_end_filled_in() -> None:
+    """A recent trip with no end time ends at the last GPS fix once the car stops."""
+    from datetime import datetime, timedelta, timezone
+
+    from custom_components.fleeta.coordinator import FleetaVehicle, _trip_end
+
+    now = datetime(2026, 11, 22, 20, 0, tzinfo=timezone.utc)
+    fix = datetime(2026, 11, 22, 14, 29, tzinfo=timezone.utc)
+    parked = FleetaVehicle(psn=PSN, name="Car", status="parked", position_time=fix)
+    recent = {"started_at": datetime(2026, 11, 22, 13, 50, tzinfo=timezone.utc), "duration_min": None}
+    assert _trip_end(recent, parked, now) == fix
+    with_duration = dict(recent, duration_min=39.0)
+    assert _trip_end(with_duration, parked, now) == recent["started_at"] + timedelta(minutes=39)
+    driving = FleetaVehicle(psn=PSN, name="Car", status="driving", position_time=fix)
+    assert _trip_end(recent, driving, now) is None
+    old = {"started_at": now - timedelta(days=3), "duration_min": None}
+    assert _trip_end(old, parked, now) is None

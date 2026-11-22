@@ -4,7 +4,7 @@
 (() => {
   const TAG = 'fleeta-card';
   if (customElements.get(TAG)) return;
-  const VERSION = '1.3.0';
+  const VERSION = '1.3.1';
 
   const DEFAULTS = { place: 'zone', hours_to_show: 24, map_theme: 'light', show_map: true };
   const BAD = ['unavailable', 'unknown', ''];
