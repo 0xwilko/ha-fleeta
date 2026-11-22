@@ -217,8 +217,25 @@ class FleetaApi:
         """Return the GPS points of one trip (GET /v1/trips/{id}/track)."""
         body = await self._get(f"/v1/trips/{quote(trip_id, safe='')}/track", {"maxPoints": 500})
         data = body.get("data")
-        points = data.get("points") if isinstance(data, dict) else None
-        return [point for point in points if isinstance(point, dict)] if isinstance(points, list) else []
+        points: Any = None
+        if isinstance(data, list):
+            points = data
+        elif isinstance(data, dict):
+            points = next((data[key] for key in ("points", "track", "path") if isinstance(data.get(key), list)), None)
+        if not isinstance(points, list):
+            LOGGER.debug(
+                "FLEETA track has no point list (data is %s with keys %s)",
+                type(data).__name__,
+                sorted(k for k in data if isinstance(k, str))[:20] if isinstance(data, dict) else [],
+            )
+            return []
+        rows = [point for point in points if isinstance(point, dict)]
+        LOGGER.debug(
+            "FLEETA track: %s point(s), point keys %s",
+            len(rows),
+            sorted(k for k in rows[0] if isinstance(k, str))[:20] if rows else [],
+        )
+        return rows
 
     async def get_recent_events(self, psn: str) -> list[dict[str, Any]]:
         """Return the dashcam's latest events with their picture links.

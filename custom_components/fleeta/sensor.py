@@ -200,6 +200,7 @@ class FleetaLastTripSensor(FleetaVehicleEntity, SensorEntity):
             "ended_at": trip["ended_at"].isoformat() if trip["ended_at"] else None,
             "duration_minutes": trip["duration_min"],
             "max_speed_kmh": trip["max_speed_kmh"],
+            "distance_from": trip.get("distance_source", "fleeta"),
             "start_latitude": start.get("latitude"),
             "start_longitude": start.get("longitude"),
             "end_latitude": end.get("latitude"),

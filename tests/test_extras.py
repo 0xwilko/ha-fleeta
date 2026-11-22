@@ -271,3 +271,54 @@ def test_track_summary_checks() -> None:
     assert validate.track_summary(None) == (None, None, None)
     assert validate.track_summary([{"at": "2026-11-21T15:00:00Z", "latitude": 52.9, "longitude": 0.06}])[0] is None
     assert validate.track_summary(["x", {"latitude": "a"}])[0] is None
+
+
+async def test_distance_from_home_assistant_history(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """With no distance and no usable track, the positions HA recorded are used."""
+    from unittest.mock import MagicMock, patch
+
+    from homeassistant.core import State
+    from homeassistant.util import dt as dt_util
+
+    freezer.move_to("2026-11-21T16:00:00+00:00")
+    no_distance = dict(TRIPS["data"][0], distanceKm=None, durationMin=None, endedAt=None,
+                       startedAt="2026-11-21T15:00:00.000Z")
+    mock_api(aioclient_mock, trips={"data": [no_distance], "pagination": {}})
+    aioclient_mock.get(f"{API_BASE_URL}/v1/trips/trip_0002/track", json={"data": {"points": []}})
+
+    def _state(minute: int, lat: float) -> State:
+        when = dt_util.parse_datetime(f"2026-11-21T15:{minute:02d}:00+00:00")
+        return State("device_tracker.bmw_x5_50e", "not_home", {"latitude": lat, "longitude": 0.0601},
+                     last_changed=when, last_updated=when)
+
+    recorded = {"device_tracker.bmw_x5_50e": [_state(0, 52.9000), _state(5, 52.9450), _state(10, 52.9712)]}
+
+    class _Instance:
+        async def async_add_executor_job(self, func):
+            return recorded
+
+    hass.config.components.add("recorder")
+    # After the first start the tracker is already in the entity registry.
+    from homeassistant.helpers import entity_registry as er
+
+    from custom_components.fleeta.const import DOMAIN
+
+    er.async_get(hass).async_get_or_create(
+        "device_tracker", DOMAIN, f"{PSN}_tracker", suggested_object_id="bmw_x5_50e"
+    )
+    with (
+        patch("homeassistant.helpers.recorder.get_instance", return_value=_Instance()),
+        patch("homeassistant.components.recorder.history.get_significant_states", MagicMock()),
+    ):
+        config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.bmw_x5_50e_last_trip")
+    assert 4.8 < float(state.state) < 5.0
+    assert state.attributes["distance_from"] == "home_assistant"

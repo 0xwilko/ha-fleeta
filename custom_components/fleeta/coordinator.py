@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -451,6 +453,11 @@ class FleetaCoordinator(DataUpdateCoordinator[FleetaData]):
         if last["distance_km"] is None:
             # FLEETA does not always give a distance: add it up from the trip's GPS points.
             km, first_at, last_at = validate.track_summary(await self.api.get_trip_track(last["trip_id"]))
+            last["distance_source"] = "fleeta_track"
+            if km is None:
+                # No usable track from FLEETA: use the positions Home Assistant recorded.
+                km = await self._distance_from_history(psn, last["started_at"], last["ended_at"])
+                last["distance_source"] = "home_assistant"
             last["distance_km"] = km
             if last.get("end_guessed") and last_at and last_at > last["started_at"]:
                 # The last GPS point of the trip is a better end time than our guess.
@@ -471,6 +478,44 @@ class FleetaCoordinator(DataUpdateCoordinator[FleetaData]):
         )
         if last["distance_km"]:
             self._state.trips[psn] = last
+
+    async def _distance_from_history(self, psn: str, start: datetime, end: datetime) -> float | None:
+        """Add up the car's positions that Home Assistant recorded during a trip."""
+        if "recorder" not in self.hass.config.components:
+            return None
+        entity_id = er.async_get(self.hass).async_get_entity_id("device_tracker", DOMAIN, f"{psn}_tracker")
+        if entity_id is None:
+            return None
+        # Imported here so the integration still loads without the recorder.
+        from homeassistant.components.recorder import history  # noqa: PLC0415
+        from homeassistant.helpers.recorder import get_instance  # noqa: PLC0415
+
+        try:
+            states = await get_instance(self.hass).async_add_executor_job(
+                partial(
+                    history.get_significant_states,
+                    self.hass,
+                    start - timedelta(minutes=1),
+                    end + timedelta(minutes=1),
+                    [entity_id],
+                    significant_changes_only=False,
+                )
+            )
+        except Exception as err:  # noqa: BLE001 - history is an extra; never fail the update
+            LOGGER.debug("Could not read recorded positions: %s", type(err).__name__)
+            return None
+        points = [
+            {
+                "at": state.last_updated.isoformat(),
+                "latitude": state.attributes.get("latitude"),
+                "longitude": state.attributes.get("longitude"),
+            }
+            for state in states.get(entity_id, [])
+            if isinstance(state, State)
+        ]
+        km, _, _ = validate.track_summary(points)
+        LOGGER.debug("FLEETA trip from Home Assistant history: %s position(s), %s km", len(points), km)
+        return km
 
     async def _refresh_picture(self, psn: str, now: datetime) -> None:
         """Fetch the picture for a new event (or the latest one at start-up)."""

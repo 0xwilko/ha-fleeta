@@ -260,8 +260,11 @@ def track_summary(points: Any) -> tuple[float | None, datetime | None, datetime 
     for raw in points[:MAX_TRACK_POINTS]:
         if not isinstance(raw, dict):
             continue
-        at = timestamp(raw.get("at"))
-        position = coordinates(raw.get("latitude"), raw.get("longitude"))
+        at = timestamp(raw.get("at") or raw.get("time") or raw.get("timestamp"))
+        position = coordinates(
+            raw.get("latitude", raw.get("lat")),
+            raw.get("longitude", raw.get("lng", raw.get("lon"))),
+        )
         if at is not None and position is not None:
             clean.append((at, position))
     if len(clean) < 2:
