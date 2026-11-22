@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect to FLEETA",
-        "description": "Enter a FLEETA Open API key. Create one in the FLEETA web viewer under Management › Open API › API keys.",
+        "description": "Three quick steps:\n\n1. Open the [FLEETA web viewer]({viewer_url}) and sign in.\n2. Go to **Management**, then **Open API**, then the **API keys** tab, and issue a key.\n3. Copy the key and paste it below.",
         "data": {
           "api_key": "API key"
         },
@@ -13,7 +13,7 @@
       },
       "reauth_confirm": {
         "title": "FLEETA API key needed",
-        "description": "The FLEETA API key was rejected. It may have been revoked. Enter a new key.",
+        "description": "The FLEETA API key was rejected. It may have been revoked. Issue a new key in the [FLEETA web viewer]({viewer_url}) under **Management**, **Open API**, **API keys**, and paste it below.",
         "data": {
           "api_key": "API key"
         },

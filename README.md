@@ -3,7 +3,12 @@
 Brings your BlackVue cloud dashcam into Home Assistant using the official
 [FLEETA Open API](https://developers.fleeta.io/). See where the car is on your
 map, whether it is home or away, its speed, and get an alert in Home Assistant
-when the camera records a parking bump or a harsh brake.
+when the camera records a parking bump or a harsh brake. It comes with its own
+**FLEETA Car** dashboard card: a map with the car's route, its status, speed,
+last GPS fix and last camera event.
+
+[![Open this repository in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=0xwilko&repository=ha-fleeta&category=integration)
+[![Add the FLEETA integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=fleeta)
 
 ![FLEETA in Home Assistant](docs/images/integration-page.png)
 
@@ -45,6 +50,11 @@ Keep the key private, like a password. You only paste it into Home Assistant.
 
 ## Step 2: Install the integration
 
+Quickest: tap the **Open this repository in HACS** button above, click **Download**,
+then restart Home Assistant (**Settings** › **⋮** › **Restart Home Assistant**).
+
+Or by hand:
+
 1. In Home Assistant go to **Settings** › **Marketplace** (on older versions: **HACS**).
 2. Click the three dots **⋮** in the top right, then **Custom repositories**.
 3. In **Repository** paste `https://github.com/0xwilko/ha-fleeta`.
@@ -54,6 +64,10 @@ Keep the key private, like a password. You only paste it into Home Assistant.
 7. Restart Home Assistant: **Settings** › **⋮** › **Restart Home Assistant**.
 
 ## Step 3: Add your dashcam
+
+Quickest: tap the **Add the FLEETA integration** button above and paste your API key.
+
+Or by hand:
 
 1. Go to **Settings** › **Devices & services**.
 2. Click **Add integration** and search for **FLEETA**.
@@ -67,10 +81,36 @@ Your dashcam appears as a device named the same as in the FLEETA app.
 
 ## Step 4: Use it
 
-### Show the car on a map
+### The FLEETA Car card
 
-Add a **Map** card to a dashboard and pick the dashcam's device tracker
-(for example `device_tracker.my_car`).
+The card comes with the integration. There is nothing else to download and no
+dashboard resource to add.
+
+1. Open a dashboard, click the pencil (**Edit dashboard**), then **Add card**.
+2. Search for **FLEETA Car** and pick it. It finds your car by itself.
+3. Click **Save**.
+
+It shows the car's name and where it is, an Online or Offline badge, a live map
+with the car's route, and four tiles: **Status**, **Speed**, **Last GPS fix** and
+**Last event**. Tap any tile for its history.
+
+| Option | Default | What it does |
+|---|---|---|
+| Car | first FLEETA car | Which dashcam to show |
+| Name | the car's name | A different name for the card |
+| Place shown under the name | Zone | **Zone** shows Home, Work or Away from your zones. **Street and town** shows, for example, "Westminster, London" (see Privacy) |
+| Route trail | 24 hours | Hours of route drawn on the map. 0 for none |
+| Map style | Light | Light, Dark, or follow your theme |
+| Show the map | on | Turn off for a smaller card with just the tiles |
+
+In YAML the card is simply:
+
+```yaml
+type: custom:fleeta-card
+```
+
+You can also use Home Assistant's own **Map** card with the dashcam's device
+tracker (for example `device_tracker.my_car`).
 
 ### Get a phone alert on a parking impact
 
@@ -126,6 +166,11 @@ your allowance.
   cannot be sent anywhere else.
 - Everything that comes back from FLEETA is checked before Home Assistant sees
   it. Text is cleaned and shortened, and numbers must be in a sensible range.
+- The FLEETA Car card only talks to your own Home Assistant. The one exception is
+  the optional **Street and town** place setting: then the card sends the car's
+  position to OpenStreetMap (`nominatim.openstreetmap.org`) to look up the street
+  and town, at most once a minute, and remembers the answers on that device. In a
+  zone such as Home it shows the zone name and looks nothing up. It is off by default.
 - **Download diagnostics** removes the key, camera serial numbers, camera names
   and GPS positions, so it is safe to share when asking for help.
 

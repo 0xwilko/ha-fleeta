@@ -33,8 +33,12 @@ from .const import (
     DEFAULT_SCAN_INTERVAL_MINUTES,
     DOMAIN,
     LOGGER,
+    WEB_VIEWER_URL,
 )
 from .coordinator import FleetaConfigEntry
+
+# Links are passed in, not written into the translations (a Home Assistant rule).
+KEY_HELP = {"viewer_url": WEB_VIEWER_URL}
 
 API_KEY_SCHEMA = vol.Schema(
     {
@@ -79,7 +83,9 @@ class FleetaConfigFlow(ConfigFlow, domain=DOMAIN):
             errors = await _validate_key(self.hass, api_key)
             if not errors:
                 return self.async_create_entry(title="FLEETA", data={CONF_API_KEY: api_key})
-        return self.async_show_form(step_id="user", data_schema=API_KEY_SCHEMA, errors=errors)
+        return self.async_show_form(
+            step_id="user", data_schema=API_KEY_SCHEMA, errors=errors, description_placeholders=KEY_HELP
+        )
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         """The key stopped working."""
@@ -95,7 +101,9 @@ class FleetaConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_update_reload_and_abort(
                     self._get_reauth_entry(), data_updates={CONF_API_KEY: api_key}
                 )
-        return self.async_show_form(step_id="reauth_confirm", data_schema=API_KEY_SCHEMA, errors=errors)
+        return self.async_show_form(
+            step_id="reauth_confirm", data_schema=API_KEY_SCHEMA, errors=errors, description_placeholders=KEY_HELP
+        )
 
     @staticmethod
     @callback

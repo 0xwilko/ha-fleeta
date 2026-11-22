@@ -13,6 +13,9 @@ API_BASE_URL: Final = "https://openapi.fleeta.io"
 API_TIMEOUT_SECONDS: Final = 30
 WEB_VIEWER_URL: Final = "https://app.fleeta.io/"
 
+# The FLEETA Car dashboard card, served by this integration.
+CARD_URL: Final = f"/{DOMAIN}/fleeta-card.js"
+
 MANUFACTURER: Final = "BlackVue"
 
 # Option: fixed polling interval in minutes. 0 means "automatic" (paced to the
