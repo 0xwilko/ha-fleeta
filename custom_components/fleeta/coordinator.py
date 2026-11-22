@@ -439,21 +439,38 @@ class FleetaCoordinator(DataUpdateCoordinator[FleetaData]):
         for trip in trips:
             if trip["ended_at"] is None:
                 trip["ended_at"] = _trip_end(trip, vehicle, now)
-        # Only finished trips that went somewhere; newest first.
-        finished = [trip for trip in trips if trip["ended_at"] and trip["distance_km"]]
-        newest = max(trips, key=lambda trip: trip["started_at"], default=None)
+                trip["end_guessed"] = True
+        finished = [trip for trip in trips if trip["ended_at"]]
+        if not finished:
+            LOGGER.debug("FLEETA trips: %s row(s), %s usable, none finished", len(rows), len(trips))
+            return
+        last = max(finished, key=lambda trip: trip["ended_at"])
+        known = self._state.trips.get(psn)
+        if known and known["trip_id"] == last["trip_id"] and known["distance_km"]:
+            return
+        if last["distance_km"] is None:
+            # FLEETA does not always give a distance: add it up from the trip's GPS points.
+            km, first_at, last_at = validate.track_summary(await self.api.get_trip_track(last["trip_id"]))
+            last["distance_km"] = km
+            if last.get("end_guessed") and last_at and last_at > last["started_at"]:
+                # The last GPS point of the trip is a better end time than our guess.
+                last["ended_at"] = last_at
+            if last_at and first_at and last["duration_min"] is None:
+                last["duration_min"] = round((last_at - first_at).total_seconds() / 60, 1)
+        if last["duration_min"] is None:
+            last["duration_min"] = round((last["ended_at"] - last["started_at"]).total_seconds() / 60, 1)
         LOGGER.debug(
-            "FLEETA trips: %s row(s), %s usable, %s finished; newest started %s, ended %s, %s km, %s min",
+            "FLEETA trips: %s row(s), %s finished; last started %s, ended %s, %s km, %s min, row keys %s",
             len(rows),
-            len(trips),
             len(finished),
-            newest["started_at"].isoformat() if newest else None,
-            newest["ended_at"].isoformat() if newest and newest["ended_at"] else None,
-            newest["distance_km"] if newest else None,
-            newest["duration_min"] if newest else None,
+            last["started_at"].isoformat(),
+            last["ended_at"].isoformat(),
+            last["distance_km"],
+            last["duration_min"],
+            sorted(k for k in rows[0] if isinstance(k, str))[:20] if rows else [],
         )
-        if finished:
-            self._state.trips[psn] = max(finished, key=lambda trip: trip["ended_at"])
+        if last["distance_km"]:
+            self._state.trips[psn] = last
 
     async def _refresh_picture(self, psn: str, now: datetime) -> None:
         """Fetch the picture for a new event (or the latest one at start-up)."""

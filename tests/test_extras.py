@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from http import HTTPStatus
 
+from freezegun.api import FrozenDateTimeFactory
+
 from homeassistant.const import STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 
@@ -226,3 +228,46 @@ def test_trip_end_filled_in() -> None:
     assert _trip_end(recent, driving, now) is None
     old = {"started_at": now - timedelta(days=3), "duration_min": None}
     assert _trip_end(old, parked, now) is None
+
+
+async def test_distance_from_track_when_fleeta_gives_none(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """With no distance from FLEETA, the trip's GPS points are added up."""
+    freezer.move_to("2026-11-21T16:00:00+00:00")
+    no_distance = dict(TRIPS["data"][0], distanceKm=None, durationMin=None, endedAt=None,
+                       startedAt="2026-11-21T15:00:00.000Z")
+    mock_api(aioclient_mock, trips={"data": [no_distance], "pagination": {}})
+    track = {
+        "data": {
+            "tripId": "trip_0002",
+            "points": [
+                {"at": "2026-11-21T15:00:00Z", "latitude": 52.9000, "longitude": 0.0601},
+                {"at": "2026-11-21T15:05:00Z", "latitude": 52.9450, "longitude": 0.0601},
+                # A GPS glitch far away is skipped.
+                {"at": "2026-11-21T15:06:00Z", "latitude": 55.0, "longitude": 3.0},
+                {"at": "2026-11-21T15:10:00Z", "latitude": 52.9712, "longitude": 0.0601},
+            ],
+        }
+    }
+    aioclient_mock.get(f"{API_BASE_URL}/v1/trips/trip_0002/track", json=track)
+    config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.bmw_x5_50e_last_trip")
+    # 52.9000 -> 52.9712 is about 7.9 km (4.9 miles)
+    assert 4.8 < float(state.state) < 5.0
+    assert state.attributes["duration_minutes"] == 10.0
+    # FLEETA gave no end time: the trip's last GPS point is used.
+    assert state.attributes["ended_at"] == "2026-11-21T15:10:00+00:00"
+
+
+def test_track_summary_checks() -> None:
+    """Bad points are ignored; one point is not a trip."""
+    assert validate.track_summary(None) == (None, None, None)
+    assert validate.track_summary([{"at": "2026-11-21T15:00:00Z", "latitude": 52.9, "longitude": 0.06}])[0] is None
+    assert validate.track_summary(["x", {"latitude": "a"}])[0] is None

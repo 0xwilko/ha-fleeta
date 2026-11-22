@@ -234,3 +234,46 @@ def image_type(data: Any) -> str | None:
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
     return None
+
+
+MAX_TRACK_POINTS = 2000
+# A jump between two points faster than this is a GPS glitch and is skipped.
+MAX_PLAUSIBLE_KMH = 250.0
+
+
+def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Distance in km between two (latitude, longitude) points."""
+    lat1, lon1, lat2, lon2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin((lon2 - lon1) / 2) ** 2
+    return 2 * 6371.0 * math.asin(min(1.0, math.sqrt(h)))
+
+
+def track_summary(points: Any) -> tuple[float | None, datetime | None, datetime | None]:
+    """Work out a trip's distance, first and last time from its GPS points.
+
+    Points are put in time order, and jumps that would need an impossible
+    speed are left out rather than counted.
+    """
+    if not isinstance(points, list):
+        return None, None, None
+    clean: list[tuple[datetime, tuple[float, float]]] = []
+    for raw in points[:MAX_TRACK_POINTS]:
+        if not isinstance(raw, dict):
+            continue
+        at = timestamp(raw.get("at"))
+        position = coordinates(raw.get("latitude"), raw.get("longitude"))
+        if at is not None and position is not None:
+            clean.append((at, position))
+    if len(clean) < 2:
+        return None, None, None
+    clean.sort(key=lambda item: item[0])
+    total = 0.0
+    last_at, last_pos = clean[0]
+    for at, position in clean[1:]:
+        km = _haversine_km(last_pos, position)
+        hours = (at - last_at).total_seconds() / 3600
+        if hours > 0 and km / hours > MAX_PLAUSIBLE_KMH:
+            continue
+        total += km
+        last_at, last_pos = at, position
+    return round(total, 2), clean[0][0], clean[-1][0]

@@ -213,6 +213,13 @@ class FleetaApi:
         rows = body.get("data")
         return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
+    async def get_trip_track(self, trip_id: str) -> list[dict[str, Any]]:
+        """Return the GPS points of one trip (GET /v1/trips/{id}/track)."""
+        body = await self._get(f"/v1/trips/{quote(trip_id, safe='')}/track", {"maxPoints": 500})
+        data = body.get("data")
+        points = data.get("points") if isinstance(data, dict) else None
+        return [point for point in points if isinstance(point, dict)] if isinstance(points, list) else []
+
     async def get_recent_events(self, psn: str) -> list[dict[str, Any]]:
         """Return the dashcam's latest events with their picture links.
 
