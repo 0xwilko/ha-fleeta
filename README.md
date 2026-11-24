@@ -57,18 +57,21 @@ Keep the key private, like a password. You only paste it into Home Assistant.
 
 ## Step 2: Install the integration
 
-Quickest: tap the **Open this repository in HACS** button above, click **Download**,
-then restart Home Assistant (**Settings** › **⋮** › **Restart Home Assistant**).
+FLEETA (BlackVue) is in the default Marketplace (HACS) list, so you can find it by searching:
 
-Or by hand:
+1. In Home Assistant go to **Settings** › **Marketplace** (on older versions: open **HACS**).
+2. Search for **FLEETA** and open **FLEETA (BlackVue)**.
+3. Click **Download**, then **Download** again.
+4. Restart Home Assistant: **Settings** › **⋮** › **Restart Home Assistant**.
 
-1. In Home Assistant go to **Settings** › **Marketplace** (on older versions: **HACS**).
-2. Click the three dots **⋮** in the top right, then **Custom repositories**.
-3. In **Repository** paste `https://github.com/0xwilko/ha-fleeta`.
-4. Set **Type** to **Integration** and click **Add**.
-5. Close the box, search for **FLEETA** and open **FLEETA (BlackVue)**.
-6. Click **Download**, then **Download** again.
-7. Restart Home Assistant: **Settings** › **⋮** › **Restart Home Assistant**.
+Or tap the **Open this repository in HACS** button above, click **Download**, then restart Home Assistant.
+
+If it doesn't show up when you search (a newly listed integration can take a few hours to appear), add it as a custom repository instead:
+
+1. In **Settings** › **Marketplace** (or **HACS**), click the three dots **⋮** in the top right, then **Custom repositories**.
+2. In **Repository** paste `https://github.com/0xwilko/ha-fleeta`.
+3. Set **Type** to **Integration** and click **Add**.
+4. Close the box, then follow steps 2 to 4 above.
 
 ## Step 3: Add your dashcam
 
